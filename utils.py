@@ -45,6 +45,8 @@ def get_wkt_data() -> Dict[str, Dict[int, str]]:
 
 
 def load_image(im_id: str, rgb_only=False, align=True) -> np.ndarray:
+    """ Align and concatenate the 20 bands (NOTE: we can remove some later (in train.train() ) by specifying the
+    intended number in `self.hps.n_channels`) """
     im_rgb = tiff.imread('./three_band/{}.tif'.format(im_id)).transpose([1, 2, 0])
     if rgb_only:
         return im_rgb
@@ -77,7 +79,10 @@ def _preprocess_for_alignment(im):
 
 
 def _aligned(im_ref, im, im_to_align=None, key=None):
+    # im_ref = im_rgb (indeed, see quote below)
     w, h = im.shape[:2]
+
+    # "lower-resolution layers were upscaled to match RGB size"
     im_ref = cv2.resize(im_ref, (h, w), interpolation=cv2.INTER_CUBIC)
     im_ref = _preprocess_for_alignment(im_ref)
     if im_to_align is None:
@@ -90,6 +95,9 @@ def _aligned(im_ref, im, im_to_align=None, key=None):
         logger.info('Error getting alignment: {}'.format(e))
         return im, False
     else:
+
+        # Apply the warp matrix to one of the images to align it with the other image. (we use `warpAffine()` for
+        # Translation, Euclidean and Affine, and `warpPerspective()` fo Homography)
         im = cv2.warpAffine(im, warp_matrix, (h, w),
                             flags=cv2.INTER_LINEAR + cv2.WARP_INVERSE_MAP)
         im[im == 0] = np.mean(im)
@@ -97,16 +105,37 @@ def _aligned(im_ref, im, im_to_align=None, key=None):
 
 
 def _get_alignment(im_ref, im_to_align, key):
+    # Fix alignment problems (see also http://www.learnopencv.com/image-alignment-ecc-in-opencv-c-python/): the steps
+    # for allignment:
+    # 0. (Done in previous steps) Read the images. Convert them to grayscale.
+    # 1. Pick a motion model you want to estimate.
+    # 2. Allocate space (warp_matrix) to store the motion model.
+    # 3. Define a termination criteria that tells the algorithm when to stop.
+    # 4. Estimate the warp matrix using findTransformECC.
+    # 5. (Ran in ) Apply the warp matrix to one of the images to align it with the other image
+
     if key is not None:
         cached_path = Path('align_cache').joinpath('{}.alignment'.format(key))
         if cached_path.exists():
             with cached_path.open('rb') as f:
                 return pickle.load(f)
     logger.info('Getting alignment for {}'.format(key))
+
+    # 1. Pick a motion model you want to estimate.
     warp_mode = cv2.MOTION_TRANSLATION
+
+    # 2. Allocate space (warp_matrix) to store the motion model (that defines the "warp" (i.e. the affine
+    # transformation required to correct alignment).
     warp_matrix = np.eye(2, 3, dtype=np.float32)
+
+    # 3. Define a termination criteria that tells the algorithm when to stop.
+    # (here we have number_of_iterations=5000, and the threshold of the increment in the correlation coefficient
+    # between two iterations="epsilon"=1e-8)
     criteria = (
         cv2.TERM_CRITERIA_EPS | cv2.TERM_CRITERIA_COUNT, 5000,  1e-8)
+
+    # 4. Estimate the warp matrix using findTransformECC ((i.e the cc=ECC= Enhanced Correlation Coeefiecient, that
+    # defines a similarity measure).
     cc, warp_matrix = cv2.findTransformECC(
         im_ref, im_to_align, warp_matrix, warp_mode, criteria)
     if key is not None:
@@ -144,6 +173,8 @@ def dump_polygons(im_id: str, im_size: Tuple[int, int], polygons: MultiPolygon)\
 
 
 def get_scalers(im_id: str, im_size: Tuple[int, int]) -> Tuple[float, float]:
+    """ Follows https://www.kaggle.com/c/dstl-satellite-imagery-feature-detection/details/data-processing-tutorial
+    scale data according to the 'Fake transformation' (to obscure the real region) """
     h, w = im_size  # they are flipped so that mask_for_polygons works correctly
     w_ = w * (w / (w + 1))
     h_ = h * (h / (h + 1))

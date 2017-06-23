@@ -71,16 +71,30 @@ class Model:
         return Variable(x.cuda() if self.on_gpu else x)
 
     def train_step(self, x, y, dist_y):
+        # Before the backward pass, use the optimizer object to zero all of the
+        # gradients for the variables it will update (which are the learnable weights
+        # of the model)
         self.optimizer.zero_grad()
+
+        # === Backpropagation ==
+        # Forward
         y_pred = self.net(self._var(x))
-        batch_size = x.size()[0]
+
+        # Backward
+        # copmute loss for each class
         losses = self.losses(y, dist_y, y_pred)
         cls_losses = [float(l.data[0]) for l in losses]
+        # sum losses for each class
         loss = losses[0]
         for l in losses[1:]:
             loss += l
-        (loss * batch_size).backward()
+
+        batch_size = x.size()[0]
+        (loss * batch_size).backward()  # "loss was multiplied by the batch size"
+
+        # Optimise
         self.optimizer.step()
+
         self.net.global_step += 1
         return cls_losses
 
@@ -142,10 +156,15 @@ class Model:
             start_epoch = int(model_path.name.rsplit('-', 1)[1]) + 1
         else:
             start_epoch = self.restore_last_snapshot(logdir)
-        square_validation = validation == 'square'
+        square_validation = validation == 'square'  # i.e. evaluate training data on training data (see argparse
+                                                    # handling in maing)
         lr = self.hps.lr
         self.optimizer = self._init_optimizer(lr)
+
+        # Train on each epoch
         for n_epoch in range(start_epoch, self.hps.n_epochs):
+
+            # Learning rate schedule
             if self.hps.lr_decay:
                 if n_epoch % 2 == 0 or n_epoch == start_epoch:
                     lr = self.hps.lr * self.hps.lr_decay ** n_epoch
@@ -160,6 +179,7 @@ class Model:
                         n_epoch == start_epoch and n_epoch > lim_2):
                     lr = self.hps.lr / 25
                     self.optimizer = self._init_optimizer(lr)
+
             logger.info('Starting epoch {}, step {:,}, lr {:.8f}'.format(
                 n_epoch + 1, self.net.global_step[0], lr))
             subsample = 1 if valid_only else 2  # make validation more often
@@ -188,6 +208,7 @@ class Model:
         self.logdir = None
 
     def preprocess_image(self, im_data: np.ndarray) -> np.ndarray:
+        """ Normalise"""
         # mean = np.mean(im_data, axis=(0, 1))
         # std = np.std(im_data, axis=(0, 1))
         std = np.array([
@@ -236,6 +257,7 @@ class Model:
             if not pre_buffer:
                 with mask_path.open('wb') as f:
                     np.save(f, mask)
+        # Trim the number of bands in the image (e.g. if self.hps.n_channels=8, only using 12 channels=(RGB, P, M))
         if self.hps.n_channels != im_data.shape[0]:
             im_data = im_data[:self.hps.n_channels]
         return Image(im_id, im_data, mask[self.hps.classes])
@@ -244,7 +266,7 @@ class Model:
                         subsample: int=1,
                         square_validation: bool=False,
                         no_mp: bool=False):
-        self.net.train()
+        self.net.train()  # set model in training mode
         b = self.hps.patch_border
         s = self.hps.patch_inner
         # Extra margin for rotation
@@ -337,9 +359,12 @@ class Model:
         t0 = t00 = time.time()
         log_step = 50
         im_log_step = n_batches // log_step * log_step
+
+        # Setup multiprocessing (if enabled from command line arguments)
         map_ = (map if no_mp else
                 partial(utils.imap_fixed_output_buffer, threads=4))
-        for i, (x, y, dist_y) in enumerate(map_(gen_batch, range(n_batches))):
+
+        for i, (x, y, dist_y) in enumerate(map_(gen_batch, range(1))):#n_batches))):
             if losses[0] and i % log_step == 0:
                 for cls, ls in zip(self.hps.classes, losses):
                     self._log_value(
@@ -348,12 +373,15 @@ class Model:
                     self._log_value(
                         'loss/cls-mean', np.mean([
                             l for ls in losses for l in ls[-log_step:]]))
-                pred_y = self.net(self._var(x)).data.cpu()
-                self._update_jaccard(jaccard_stats, y.numpy(), pred_y.numpy())
+
+                # === Backpropagation (with logging on CPU) ===
+                pred_y = self.net(self._var(x)).data.cpu()  # predict on GPU, pass back to CPU
+                self._update_jaccard(jaccard_stats, y.numpy(), pred_y.numpy())  # compute loss
                 self._log_jaccard(jaccard_stats)
                 if i == im_log_step:
                     self._log_im(
                         x.numpy(), y.numpy(), dist_y.numpy(), pred_y.numpy())
+            # === Backpropagation (all GPU, if available)) ===
             step_losses = self.train_step(x, y, dist_y)
             for ls, l in zip(losses, step_losses):
                 ls.append(l)
@@ -469,7 +497,7 @@ class Model:
 
     def validate_on_images(self, valid_images: List[Image],
                            subsample: int=1):
-        self.net.eval()
+        self.net.eval()  # sets the module in evaluation mode.
         b = self.hps.patch_border
         s = self.hps.patch_inner
         losses = [[] for _ in range(self.hps.n_classes)]
@@ -478,11 +506,11 @@ class Model:
             w, h = im.size
             xs = range(b, w - (b + s), s)
             ys = range(b, h - (b + s), s)
-            all_xy = [(x, y) for x in xs for y in ys]
+            all_xy = [(x, y) for x in xs for y in ys]  # starting positions for all patches.
             if subsample != 1:
                 random.shuffle(all_xy)
                 all_xy = all_xy[:len(all_xy) // subsample]
-            for xy_batch in utils.chunks(all_xy, self.hps.batch_size // 2):
+            for xy_batch in utils.chunks(all_xy, 1):
                 inputs = np.array(
                     [im.data[:, x - b: x + s + b, y - b: y + s + b]
                      for x, y in xy_batch]).astype(np.float32)
@@ -611,7 +639,7 @@ def main():
     arg('--hps', help='Change hyperparameters in k1=v1,k2=v2 format')
     arg('--all', action='store_true',
         help='Train on all images without validation')
-    arg('--validation', choices=['random', 'stratified', 'square', 'custom'],
+    arg('--validation', choices=['random', 'stratified', 'square', 'custom', 'trn_val_one_each'],
         default='custom', help='validation strategy')
     arg('--valid-only', action='store_true')
     arg('--only',
@@ -665,6 +693,9 @@ def main():
     elif args.validation == 'custom':
         valid_ids = ['6140_3_1', '6110_1_2', '6160_2_1', '6170_0_4', '6100_2_2']
         train_ids = [im_id for im_id in all_im_ids if im_id not in valid_ids]
+    elif args.validation == 'trn_val_one_each':
+        valid_ids = ['6100_2_2']
+        train_ids = ['6070_2_3']
     else:
         raise ValueError('Unexpected validation kind: {}'.format(args.validation))
 

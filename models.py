@@ -18,8 +18,8 @@ class HyperParams:
     thresholds = attr.ib(default=[0.5])
     pre_buffer = attr.ib(default=0.0)
 
-    patch_inner = attr.ib(default=64)
-    patch_border = attr.ib(default=16)
+    patch_inner = attr.ib(default=64)  # output_size
+    patch_border = attr.ib(default=16)  # additional pixel just to provide context
 
     augment_rotations = attr.ib(default=10.0)  # degrees
     augment_flips = attr.ib(default=0)
