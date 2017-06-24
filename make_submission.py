@@ -56,6 +56,7 @@ def main():
         image_ids = [im_id for im_id, cls, _ in reader if cls == '1']
 
     store = args.logdir  # type: Path
+    store.mkdir(exist_ok=True, parents=True)
 
     train_ids = set(utils.get_wkt_data())
     if only:
