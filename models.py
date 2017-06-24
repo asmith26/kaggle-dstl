@@ -11,10 +11,12 @@ import torch.nn.functional as F
 
 @attr.s(slots=True)
 class HyperParams:
-    classes = attr.ib(default=list(range(10)))
+    #classes = attr.ib(default=list(range(10)))
+    classes = attr.ib(default=list(range(2)))
     net = attr.ib(default='UNet')
     n_channels = attr.ib(default=12)  # max 20
-    total_classes = 10
+    #total_classes = 10
+    total_classes = 2
     thresholds = attr.ib(default=[0.5])
     pre_buffer = attr.ib(default=0.0)
 

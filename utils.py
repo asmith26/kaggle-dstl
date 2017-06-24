@@ -47,12 +47,12 @@ def get_wkt_data() -> Dict[str, Dict[int, str]]:
 def load_image(im_id: str, rgb_only=False, align=True) -> np.ndarray:
     """ Align and concatenate the 20 bands (NOTE: we can remove some later (in train.train() ) by specifying the
     intended number in `self.hps.n_channels`) """
-    im_rgb = tiff.imread('./three_band/{}.tif'.format(im_id)).transpose([1, 2, 0])
+    im_rgb = tiff.imread('/data/three_band/{}.tif'.format(im_id)).transpose([1, 2, 0])
     if rgb_only:
         return im_rgb
-    im_p = np.expand_dims(tiff.imread('sixteen_band/{}_P.tif'.format(im_id)), 2)
-    im_m = tiff.imread('sixteen_band/{}_M.tif'.format(im_id)).transpose([1, 2, 0])
-    im_a = tiff.imread('sixteen_band/{}_A.tif'.format(im_id)).transpose([1, 2, 0])
+    im_p = np.expand_dims(tiff.imread('/data/sixteen_band/{}_P.tif'.format(im_id)), 2)
+    im_m = tiff.imread('/data/sixteen_band/{}_M.tif'.format(im_id)).transpose([1, 2, 0])
+    im_a = tiff.imread('/data/sixteen_band/{}_A.tif'.format(im_id)).transpose([1, 2, 0])
     w, h = im_rgb.shape[:2]
     if align:
         key = lambda x: '{}_{}'.format(im_id, x)
@@ -115,7 +115,8 @@ def _get_alignment(im_ref, im_to_align, key):
     # 5. (Ran in ) Apply the warp matrix to one of the images to align it with the other image
 
     if key is not None:
-        cached_path = Path('align_cache').joinpath('{}.alignment'.format(key))
+        Path('/output/align_cache').mkdir(parents=True, exist_ok=True)
+        cached_path = Path('/output/align_cache').joinpath('{}.alignment'.format(key))
         if cached_path.exists():
             with cached_path.open('rb') as f:
                 return pickle.load(f)

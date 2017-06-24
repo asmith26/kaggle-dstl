@@ -230,7 +230,7 @@ class Model:
 
     def load_image(self, im_id: str) -> Image:
         logger.info('Loading {}'.format(im_id))
-        im_cache = Path('im_cache')
+        im_cache = Path('/output/im_cache')
         im_cache.mkdir(exist_ok=True)
         im_data_path = im_cache.joinpath('{}.data'.format(im_id))
         mask_path = im_cache.joinpath('{}.mask'.format(im_id))

@@ -46,8 +46,8 @@ def main():
     arg('--buffer', type=float, help='do .buffer(x) on pred polygons')
     args = parser.parse_args()
     to_fix = set(args.fix or [])
-    hps = HyperParams(**json.loads(
-        args.logdir.joinpath('hps.json').read_text()))
+    with open('/train_log_dir/checkpoint-folder/hps.json') as jsonfile:
+        hps = HyperParams(**json.load(jsonfile))
 
     only = set(args.only.split(',')) if args.only else set()
     with open('sample_submission.csv') as f:
